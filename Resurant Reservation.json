@@ -1,0 +1,499 @@
+{
+  "name": "My workflow 3",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Table Reseravtion",
+        "formDescription": "Fill out this form to book a table at our resturant and we will make sure to follow you up with a respose",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Customer Name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Phone Number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Date of Reservation",
+              "fieldType": "date",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Time of Reservation",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "12:00"
+                  },
+                  {
+                    "option": "1:00"
+                  },
+                  {
+                    "option": "2:00"
+                  },
+                  {
+                    "option": "3:00"
+                  },
+                  {
+                    "option": "4:00"
+                  },
+                  {
+                    "option": "5:00"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Number of Guests",
+              "fieldType": "number",
+              "defaultValue": "1",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Special Requests",
+              "fieldType": "textarea"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        -224
+      ],
+      "id": "3c0fa601-5bae-4c1b-b1b0-071c6895e8ba",
+      "name": "On form submission",
+      "webhookId": "783db37f-6644-43ea-ac8b-367d2b83f19c"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5c455214-9050-45f1-ba65-c664a25bfb0b",
+              "name": "status",
+              "value": "Confirmed",
+              "type": "string"
+            },
+            {
+              "id": "8d957455-80aa-4be2-867a-a1c2f46e720f",
+              "name": "created_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "ddec26d0-3e91-46a7-8c1d-4710d2c1bb5f",
+              "name": "reservation_id",
+              "value": "={{ Date.parse($json.submittedAt).toString() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        224,
+        -224
+      ],
+      "id": "4ff95d63-59f7-49ba-a2af-1614b7c29154",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1yMme_u1P3bAFixI1hGuHIhePqf6nokWgY_PdfpB1mbc",
+          "mode": "list",
+          "cachedResultName": "Resturant Reservations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1yMme_u1P3bAFixI1hGuHIhePqf6nokWgY_PdfpB1mbc/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Reservations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1yMme_u1P3bAFixI1hGuHIhePqf6nokWgY_PdfpB1mbc/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        448,
+        -224
+      ],
+      "id": "db259ad8-c2f0-42ba-97b1-317175ce37a1",
+      "name": "Get row(s) in sheet",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Zsl05wGFFbqcEV2H",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst request = $('Edit Fields').first().json;\nconst bookings = $input.all().map(item => item.json);\n\n// Normalize spreadsheet headers by removing whitespace/newlines\nfunction normalizeRow(row) {\n  const normalized = {};\n\n  for (const [key, value] of Object.entries(row)) {\n    normalized[key.trim()] = value;\n  }\n\n  return normalized;\n}\n\nconst normalizedBookings = bookings.map(normalizeRow);\n\nconst date = String(\n  request['Date of Reservation'] ?? ''\n).slice(0, 10);\n\nfunction normalizeTime(value) {\n  const match = String(value ?? '').trim().match(/^(\\d{1,2}):(\\d{2})/);\n\n  if (!match) return String(value ?? '').trim();\n\n  return `${match[1].padStart(2, '0')}:${match[2]}`;\n}\n\nconst time = normalizeTime(request['Time of Reservation']);\n\nif (!date || !time) {\n  throw new Error('Date or time is missing from the form.');\n}\n\nconst conflict = normalizedBookings.some(booking => {\n  const existingDate = String(booking.date ?? '').slice(0, 10);\n  const existingTime = normalizeTime(booking.time);\n  const status = String(booking.status ?? '').trim().toLowerCase();\n\n  return (\n    existingDate === date &&\n    existingTime === time &&\n    ['pending', 'confirmed'].includes(status)\n  );\n});\n\nreturn [{\n  json: {\n    ...request,\n    date,\n    time,\n    available: !conflict,\n    availability_message: conflict\n      ? 'That date and time already has a pending or confirmed reservation.'\n      : 'No matching reservation was found.'\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -224
+      ],
+      "id": "9fa7906d-dbc6-4821-9867-3680fcf7ad3d",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "6077ce5c-d14c-4cb8-95d6-f48cfb3e0ebb",
+              "leftValue": "={{ $json.available }}",
+              "rightValue": "={{ $json.available }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        896,
+        -224
+      ],
+      "id": "e20f3280-afff-402e-ad93-9bcef4fead00",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1yMme_u1P3bAFixI1hGuHIhePqf6nokWgY_PdfpB1mbc",
+          "mode": "list",
+          "cachedResultName": "Resturant Reservations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1yMme_u1P3bAFixI1hGuHIhePqf6nokWgY_PdfpB1mbc/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Reservations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1yMme_u1P3bAFixI1hGuHIhePqf6nokWgY_PdfpB1mbc/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "customer_name\n": "={{ $json['Customer Name'] }}",
+            "email\n": "={{ $json.Email }}",
+            "phone\n": "={{ $json['Phone Number'] }}",
+            "date\n": "={{ $json['Date of Reservation'] }}",
+            "time": "={{ $json['Time of Reservation'] }}",
+            "party_size": "={{ $json['Number of Guests'] }}",
+            "special_request": "={{ $json['Special Requests'] }}",
+            "status": "={{ $('Edit Fields').item.json.status }}",
+            "created_at": "={{ $('Edit Fields').item.json.created_at }}",
+            "reservation_id\n": "={{ $('Edit Fields').item.json.reservation_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "reservation_id\n",
+              "displayName": "reservation_id\n",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "customer_name\n",
+              "displayName": "customer_name\n",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email\n",
+              "displayName": "email\n",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone\n",
+              "displayName": "phone\n",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "date\n",
+              "displayName": "date\n",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "time",
+              "displayName": "time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "party_size",
+              "displayName": "party_size",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "special_request",
+              "displayName": "special_request",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1120,
+        -224
+      ],
+      "id": "6f16531c-f793-424c-8c2f-70c8fa244888",
+      "name": "Append row in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Zsl05wGFFbqcEV2H",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json[\"email\\n\"] }}",
+        "message": "=Your reservation has been confirmed!  Reservation ID: {{ $json[\"reservation_id\\n\"]}}  Date: {{ $json[\"date\\n\"] }} Time: {{ $json.time }} Number of guests: {{ $json[\"Number of Guests\"] }}  Thank you for choosing our restaurant. We look forward to serving you!",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        -224
+      ],
+      "id": "e9b18a22-09de-4db4-b1c1-e8a4ece27bdb",
+      "name": "Send a message",
+      "webhookId": "c3da3fc1-2d77-47b7-8a95-2b5bb95ff09c",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nQnkkzxOgKVX3ZsG",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $('Edit Fields').first().json;\n\nreturn [{\n  json: {\n    ...request,\n    booking_status: 'Unavailable',\n    message: 'Sorry, this date and time already has a reservation. Please choose another slot.'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        -32
+      ],
+      "id": "c838d94b-cf5b-42d4-a527-229c00e18b31",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json[\"email\\n\"] }}",
+        "subject": "Cancellation of Reservation",
+        "message": "=Your reservation could not be made please contact us at : Restuarant_PHONE NUMBER or you can try a different time by filling the form again,\n\n\nWe apologize for any unconvinience caused by this",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1184,
+        -32
+      ],
+      "id": "4e73110d-623b-4a98-87e7-e0e38105cb2a",
+      "name": "Send a message1",
+      "webhookId": "ed1a194d-7a7e-4274-8240-a479a989bd6e",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nQnkkzxOgKVX3ZsG",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet1": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "e5da0e34-a13c-4bda-bac7-7d29d3e59b37",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cc241bdd099bcfab63247de7d9acd3b83f292689bcce67d74dc377ed6be73fff"
+  },
+  "nodeGroups": [],
+  "id": "Qr70GfRS4t1jmMPF",
+  "tags": []
+}
